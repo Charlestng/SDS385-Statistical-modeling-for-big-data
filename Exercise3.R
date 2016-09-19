@@ -85,9 +85,11 @@ bactracking <- function(y, X, beta, m, indexes){
   direction <- gradient_batch(y, X, beta, m, indexes) / 
                abs(gradient_batch(y, X, beta, m, indexes))
   
+  grad <-gradient_batch(y, X, beta, m, indexes)
+  
   # loop until a value of alpha that satisfies the Wolfe condition is found
   while (
-    log_l + c * aplha * gradient_batch(y, X, beta, m, indexes) <
+    log_l + c * aplha * grad %*% direction <
     log_likelihood(y, X, beta + alpha * direction)
     )
     {
