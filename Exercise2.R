@@ -33,7 +33,16 @@ for (i in 2:ncol(X)){
 
 # let's write a function that returns the local gradient component for an index
 gradient_local <- function(y, X, beta, m, index){
-  grad <- ((y[index] - m[index]) + m[index]*(1 - 1/(1 + exp(-X[index,]%*%beta))))*X[index,] 
+  grad <- - ((y[index] - m[index]) + m[index]*(1 - 1/(1 + exp(-X[index,]%*%beta))))*X[index,] 
+  return(grad)
+}
+
+# let's write a function that return the gradient for a batch of indexes
+gradient_batch <- function(y, X, beta, m, indexes){
+  grad <- 0
+  for (index in indexes){
+    grad <- grad + gradient_local(y, X, beta, m, index)
+  }
   return(grad)
 }
 
@@ -50,9 +59,18 @@ log_likelihood <- function(y, X, beta, m){
 # let's write a function that returns the individual contribution to the log likelihood
 # for an index
 local_l_likelihood <- function(y, X, beta, m, index){
-  L <- lchoose(m[index],y[index]) + 
-    (y[index] - m[index])*X[index,]%*%beta - 
+  L <- -lchoose(m[index],y[index]) - 
+    (y[index] - m[index])*X[index,]%*%beta + 
     m[index]*log(1 + exp(-X[index,]%*%beta))
+  return(L)
+}
+
+# let's write a function that returns the batch's contribution to the log likelihood
+batch_l_likelihood <- function(y, X, beta, m, indexes){
+  L <- 0
+  for (index in indexes){
+    L <- L + local_l_likelihood(y, X, beta, m, index)
+  }
   return(L)
 }
 
@@ -72,16 +90,13 @@ stochastic_gradient_descent <- function(y, X, beta, m, step, converged, decay){
   sample_size <- length(y)
   iteration <- 0
   convergence <- 100
-  l_likelihood <- c(log_likelihood(y, X, beta, m))
-  while(iteration < 1000 & convergence > converged){ 
-    index <- runif(1, min=1, max=sample_size)
-    beta <- beta - step * gradient_local(y, X, beta, m, index)
+  beta_list <- c(beta)
+  l_likelihood <- c(log_likelihood(y, X, beta, m)/sample_size)
+  while(iteration < 10000){ 
+    index <- sample(1:sample_size,1)
+    beta <- beta - step * (iteration + 1)^(-5/9) * gradient_local(y, X, beta, m, index)
+    beta_list <- c(beta_list, beta)
     iteration <- iteration + 1
-    l_likelihood <- c(l_likelihood,
-                      l_likelihood[iteration]*(1-decay) +
-                      decay*local_l_likelihood(y, X, beta, m, index))
-    convergence <- abs((l_likelihood[iteration+1]-l_likelihood[iteration])/
-                         l_likelihood[iteration])
   }
   return(c("beta",
          beta,
@@ -91,4 +106,24 @@ stochastic_gradient_descent <- function(y, X, beta, m, step, converged, decay){
          iteration))
 }
 
-fin <- stochastic_gradient_descent(y, X, beta, m, step=0.001, converged=0.001, decay=0.8)
+fin <- stochastic_gradient_descent(y, X, beta, m, step=1, converged=0.000001, decay=0.1)
+
+# let's now write a batch version of the stochastic gradient descent
+batch_gradient_descent <- function(y, X, beta, m, step, converged, decay, batch_size){
+  sample_size <- length(y)
+  iteration <- 0
+  convergence <- 100
+  beta_list <- c(beta)
+  while(iteration < 10000){ 
+    indexes <- sample(1:sample_size, batch_size)
+    beta <- beta - step * (iteration + 1)^(-5/9) *  gradient_batch(y, X, beta, m, indexes)
+    beta_list <- c(beta_list, beta)
+    iteration <- iteration + 1
+  }
+  return(c("beta",
+           beta,
+           "steps to convergence",
+           iteration))
+}
+
+test <- batch_gradient_descent(y, X, beta, m, step=0.1, converged=0.1, decay=0.1, batch_size=20)
