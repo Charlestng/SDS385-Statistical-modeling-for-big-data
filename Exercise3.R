@@ -1,8 +1,8 @@
 #### Statistical modeling for big data ####
 
-### Exercise 2 ###
+### Exercise 3 ###
 
-## Stochastic gradient descent ##
+## Better learning ##
 
 # let's get the data for the exercise
 
@@ -24,15 +24,14 @@ data$intercept <- 1
 X <- cbind(data$intercept,X)
 X <- data.matrix(X)
 
-# pick an initial value for beta, scale matrix X and define m
-beta <- X[1,]*0+0.5
-beta <- matrix(beta,nrow=length(beta))
-m <- y*0+1
-for (i in 2:ncol(X)){
-  X[,i] <- scale(X[,i])
-}
-
-# let's write a function that returns the log likelihood
+# log likelihood function
+# inputs:
+#    y, the target vector
+#    X, the explanatory variables
+#    beta, the parameters to be estimated
+#    m, the number or trials for binomial distribution
+# outputs:
+#    log_l, the log likelihood for the binomial distribution at point beta (scalar)
 log_likelihood <- function(y, X, beta, m){
   log_l <- 0
   for (i in 1:length(y)){
@@ -42,17 +41,24 @@ log_likelihood <- function(y, X, beta, m){
   return(log_l)
 }
 
-# let's write a function that returns the local gradient component for an index
-gradient_local <- function(y, X, beta, m, index){
-  grad <- - ((y[index] - m[index]) + m[index]*(1 - 1/(1 + exp(-X[index,]%*%beta))))*X[index,] 
-  return(grad)
-}
 
-# let's write a function that return the gradient for a batch of indexes
-gradient_batch <- function(y, X, beta, m, indexes){
-  grad <- 0
-  for (index in indexes){
-    grad <- grad + gradient_local(y, X, beta, m, index)
+# gradient function
+# inputs:
+#    y, the target vector
+#    X, the explanatory variables
+#    beta, the parameters to be estimated
+#    m, the number or trials for binomial distribution
+# outputs:
+#    grad, the beta-gradient of the log likelihood at point beta (column matrix)
+
+gradient <- function(y, X, beta, m){
+  
+  # create grad, a column vectors the size of beta
+  grad <- matrix(data=beta*0, nrow=ncol(X), ncol=1)
+  
+  # loop over every observation to calculate the gradient
+  for (i in 1:length(y)){
+    grad <- grad - ((y[i] - m[i]) + m[i]*(1 - 1/(1 + exp(-X[i,]%*%beta))))*X[i,] 
   }
   return(grad)
 }
@@ -67,10 +73,10 @@ gradient_batch <- function(y, X, beta, m, indexes){
 # outputs:
 #    the new value of beta after the line search in the direction of the batch
 
-bactracking <- function(y, X, beta, m, indexes){
+backtracking <- function(y, X, beta, m){
   
   # initialise the step size
-  alpha <- 1
+  alpha <- 10
   
   # the constant for the sufficient descent Wolfe condition
   c <- runif(1, min = 0, max = 1)
@@ -82,25 +88,30 @@ bactracking <- function(y, X, beta, m, indexes){
   log_l <- log_likelihood(y, X, beta, m)
   
   # the search direction
-  direction <- gradient_batch(y, X, beta, m, indexes) / 
-               abs(gradient_batch(y, X, beta, m, indexes))
+  direction <- gradient(y, X, beta, m) / 
+    sqrt(sum(gradient(y, X, beta, m)^2))
   
-  grad <-gradient_batch(y, X, beta, m, indexes)
+  grad <-gradient(y, X, beta, m)
+  
+  beta_update <- beta - alpha * direction
+  
+  # let's define the two components of the Wolfe condition
+  sufficient <- log_l - c * alpha * t(grad) %*% direction
+  new_likelihood <- log_likelihood(y, X, beta_update, m)
   
   # loop until a value of alpha that satisfies the Wolfe condition is found
-  while (
-    log_l + c * aplha * grad %*% direction <
-    log_likelihood(y, X, beta + alpha * direction)
-    )
-    {
+  while (new_likelihood > sufficient){
     # update the value of alpha
     alpha <- alpha * rho
-    
     # update the value of beta
-    beta <- beta + alpha * direction
+    beta_update <- beta - alpha * direction
+    
+    # update the two components of the condition
+    sufficient <- log_l - c * alpha * t(grad) %*% direction
+    new_likelihood <- log_likelihood(y, X, beta_update, m)
   }
   # return the new value of beta after the line search is done
-  return(beta)
+  return(beta_update)
 }
 
 # create a batch gradient descent function that uses line search
@@ -113,9 +124,7 @@ bactracking <- function(y, X, beta, m, indexes){
 # outputs:
 #    beta, the estimated parameters
 #    a convergence plot
-batch_gradient_descent_line_search <- function(y, X, beta, m, batch_size){
-  # number of data points
-  sample_size <- length(y)
+gradient_descent_line_search <- function(y, X, beta, m){
   
   # initialise the number of iterations
   iteration <- 0
@@ -124,22 +133,143 @@ batch_gradient_descent_line_search <- function(y, X, beta, m, batch_size){
   convergence <- 100
   
   # list of the betas calculated at each iteration
-  beta_list <- data.frame(beta)
+  beta_list <- data.frame(t(beta))
   
   # loop until convergence or limit number of iterations reached
-  while(iteration < 10000){ 
-    
-    # pick a random batch of data points
-    indexes <- sample(1:sample_size, batch_size)
+  while(iteration < 100){  
     
     # update beta with line search
-    beta <- bactracking(y, X, beta, m, indexes)
+    beta <- backtracking(y, X, beta, m)
     
     # update the list of betas
-    beta_list <- cbind(beta_list, data.frame(beta))
+    beta_list <- rbind(beta_list, data.frame(t(beta)))
     
     # add one iteration to the counter
     iteration <- iteration + 1
   }
   return(beta_list)
 }
+
+test2 <- gradient_descent_line_search(y, X, beta, m)
+log_likelihood(y, X, t(as.matrix(test2[100,])), m)
+
+# Line search algorithm for Quasi Newton method
+
+# bactracking for any direction where you can also adapt the log likelihood type
+# inputs:
+#    the target vector, y
+#    the data set containing the dependent variables, X
+#    the vector of parameters to be optimised, beta
+#    the vector giving the number of trials for each yi, m
+#    direction, the direction of the line search
+#    C, a constant strictly between 0 and 1 (not too close to 1)
+#    rho, a constant strictly between 0 and 1 (not too close to 1)
+#    alpha, a constant greater than 0 (better have it too big than too small)
+
+# outputs:
+#    the new value of beta after the line search in the direction of the batch
+
+backtracking_general <- function(y, X, beta, m, direction, C, rho, alpha){
+  
+  # the initial log_likelyhood
+  log_l <- log_likelihood(y, X, beta, m)
+  
+  # the gradient of the log likelihood
+  grad <- gradient(y, X, beta, m)
+  
+  # initialise beta
+  beta_update <- beta - alpha * direction
+  
+  # let's define the two components of the Wolfe condition
+  sufficient <- log_l - C * alpha * t(grad) %*% direction
+  new_likelihood <- log_likelihood(y, X, beta_update, m)
+  
+  # loop until a value of alpha that satisfies the Wolfe condition is found
+  while (new_likelihood > sufficient){
+    
+    # update the value of alpha
+    alpha <- alpha * rho
+    
+    # update the value of beta
+    beta_update <- beta - alpha * direction
+    
+    # update the two components of the condition
+    sufficient <- log_l - C * alpha * t(grad) %*% direction
+    new_likelihood <- log_likelihood(y, X, beta_update, m)
+  }
+  
+  # return the new value of beta after the line search is done
+  return(beta_update)
+}
+
+# Quasi Newton algorithm
+
+Quasi_Newton_line_search <- function(y, X, beta, m, C, rho, alpha, max_iter){
+  
+  # initialise the number of iterations
+  iteration <- 0
+  
+  # create the identity matrix
+  Identity <- diag(x = 1, nrow = length(beta), ncol = length(beta))
+  
+  # Initialise the inverse of the Hessian estimate
+  Hk <- Identity
+  
+  # Initialise convergence condition
+  convergence <- FALSE
+  
+  # create beta list
+  beta_list <- t(beta)
+  
+  # initialise the gradient
+  grad_new <- gradient(y, X, beta, m)
+  
+  # loop until the maximum number of iterations is reached of convergence achieved
+  while (iteration < max_iter & convergence==FALSE){
+    
+    # update iteration
+    iteration <- iteration + 1
+    
+    # initial gradient of log likelihood
+    grad <- grad_new
+    
+    # initial direction
+    direction <- - Hk %*% grad_new
+
+    norm_direction <- as.numeric (sqrt((crossprod(direction, direction))))
+
+    direction <- direction / norm_direction
+    
+    # search for optimal beta for this search direction
+    beta_new <- backtracking_general(y, X, beta, m, direction, C, rho, alpha)
+    
+    # create sk
+    sk <- beta_new - beta
+    
+    #update beta
+    beta <- beta_new
+    
+    # update the list of betas
+    beta_list <- rbind(beta_list, t(beta))
+    
+    # create new gradient
+    grad_new <- gradient(y, X, beta, m)
+    
+    # create yk
+    yk <- grad_new - grad
+    
+    # create rhok
+    rhok <- as.numeric(1 / crossprod(yk, sk))
+    
+    # create sk yk T
+    skykT <- tcrossprod(yk, sk)
+    
+    # update the inverse of the Hessian
+    Hk <- (Identity - rhok * skykT) %*% Hk %*% (Identity - rhok * skykT) + rhok * sk %*% t(sk)
+    
+    # update convergence status
+  }
+  return(beta_list)
+}
+
+test <- Quasi_Newton_line_search(y, X, beta, m, C=0.7, rho=0.5, alpha=10, max_iter=1000)
