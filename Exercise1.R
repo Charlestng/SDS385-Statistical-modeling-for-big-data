@@ -180,15 +180,36 @@ data$intercept <- 1
 X <- cbind(data$intercept,X)
 X <- data.matrix(X)
 
+# gradient function
+# inputs:
+#    y, the target vector
+#    X, the explanatory variables
+#    beta, the parameters to be estimated
+#    m, the number or trials for binomial distribution
+# outputs:
+#    grad, the beta-gradient of the log likelihood at point beta (column matrix)
+
 gradient <- function(y, X, beta, m){
+  
+  # create grad, a column vectors the size of beta
   grad <- matrix(data=beta*0, nrow=ncol(X), ncol=1)
+  
+  # loop over every observation to calculate the gradient
   for (i in 1:length(y)){
     grad <- grad - ((y[i] - m[i]) + m[i]*(1 - 1/(1 + exp(-X[i,]%*%beta))))*X[i,] 
   }
   return(grad)
 }
 
-log_likelyhood <- function(y, X, beta, m){
+# log likelihood function
+# inputs:
+#    y, the target vector
+#    X, the explanatory variables
+#    beta, the parameters to be estimated
+#    m, the number or trials for binomial distribution
+# outputs:
+#    log_l, the log likelihood for the binomial distribution at point beta (scalar)
+log_likelihood <- function(y, X, beta, m){
   log_l <- 0
   for (i in 1:length(y)){
     log_l <- log_l - lchoose(m[i],y[i]) - (y[i] - m[i])*X[i,]%*%beta +
@@ -197,17 +218,49 @@ log_likelyhood <- function(y, X, beta, m){
   return(log_l)
 }
 
+# gradient descent function
+# inputs:
+#    y, the target vector
+#    X, the explanatory variables
+#    beta, the parameters to be estimated
+#    m, the number or trials for binomial distribution
+#    step, the step taken in the direction of the negative gradient at each iteration
+# outputs:
+#    beta, the estimated parameters (column matrix)
+#    iteration, the number of iterations to convergence
+#    l_likelihood, the list of the log likelihoods
+
 gradient_descent <- function(y, X, beta, m, step){
-  l_likelyhood <- c(log_likelyhood(y, X, beta, m))
-  step_n <- 0
+  
+  # initialise the list of log likelihoods
+  l_likelihood <- c(log_likelihood(y, X, beta, m))
+  
+  # initialise the number of iterations
+  iteration <- 0
+  
+  # initialise the convergence metric
   convergence <- 100
-  while (step_n < 100 & convergence > 0.001){
-    step_n <- step_n + 1
+  
+  # loop until convergence criterion is met or maximum number of iterations is reached
+  while (iteration < 1000 & convergence > 0.0001){
+    
+    # update the number of iterations
+    iteration <- iteration + 1
+    
+    # update beta along the negative gradient direction
     beta <- beta - step*gradient(y, X, beta, m)
-    l_likelyhood <- c(l_likelyhood,log_likelyhood(y, X, beta, m))
-    convergence <- abs((l_likelyhood[step_n+1]-l_likelyhood[step_n])/l_likelyhood[step_n])
+    
+    # calculate the log likelihood for the new beta and add it to the list
+    l_likelihood <- c(l_likelihood,log_likelihood(y, X, beta, m))
+    
+    # calculate the convergence metric for the new value of beta
+    convergence <- abs((l_likelihood[iteration+1]-l_likelihood[iteration])/l_likelihood[iteration])
   }
-  return(c("beta",beta,"step",step_n,"log likelyhood",l_likelyhood))
+  
+  # plot the log likelihoods to visualise convergence
+  plot(l_likelihood)
+  
+  return(c("beta",beta,"step",iteration,"log likelihood",l_likelihood))
 }
 
 # let's test our functions now on the given data
@@ -217,17 +270,33 @@ m <- y*0+1
 for (i in 2:ncol(X)){
   X[,i] <- scale(X[,i])
 }
-test <- gradient_descent(y, X, beta, m, step=0.01)
+test <- gradient_descent(y, X, beta, m, step=0.001)
 
 # D #
 
 # let's create a function that computes the Hessian matrix for any beta
-
+# Hessian function
+# inputs:
+#    X, the explanatory variables
+#    beta, the parameters to be estimated
+#    m, the number or trials for binomial distribution
+# outputs:
+#    H, the hessian matrix of the log_likelihood at point beta
 Hessian <- function(X, beta, m){
+  
+  # create a matrix of the right size full of zeros
   H <- matrix(0,nrow=length(beta),ncol=length(beta))
+  
+  # loop over the rows of the Hessian matrix
   for (row in 1:length(beta)){
+    
+    # loop over the columns of the Hessian matrix
     for (col in 1:length(beta)){
+      
+      # loop over every observation in the data set
       for (obs in 1:nrow(X)){
+        
+        # sum the contribution of each data point to the Hessian at point beta
         H[row,col] <- m[obs]*X[obs,row]*X[obs,col]*exp(-X[i,]%*%beta)/
           (1 + exp(-X[i,]%*%beta))^2
       }
@@ -236,23 +305,48 @@ Hessian <- function(X, beta, m){
   return(H)
 }
 
+# Newton method function
+# inputs:
+#    y, the target vector
+#    X, the explanatory variables
+#    beta, the parameters to be estimated
+#    m, the number or trials for binomial distribution
+# outputs:
+#    beta, the estimated parameters
+#    iteration, the number of iterations to convergence
+#    l_likelihood, the lis of the log likelihoods
+
 Newton_method <- function(y, X, beta, m){
-  l_likelyhood <- c(log_likelyhood(y, X, beta, m))
-  step_n <- 0
+  
+  # initiqlise the log likelihood list
+  l_likelihood <- c(log_likelihood(y, X, beta, m))
+  
+  # initialise the number of iterations
+  iteration <- 0
+  
+  # initialise the convergence metric
   convergence <- 100
-  while (step_n < 100 & convergence > 0.001){
-    step_n <- step_n + 1
-    beta <- beta - solve(Hessian(X, beta, m))%*%gradient(y, X, beta, m)
-    l_likelyhood <- c(l_likelyhood,log_likelyhood(y, X, beta, m))
-    convergence <- abs((l_likelyhood[step_n+1]-l_likelyhood[step_n])/l_likelyhood[step_n])
+  
+  # loop until maximum number of iterations is reached or until the convergence criterion is met
+  while (iteration < 100 & convergence > 0.001){
+    
+    # update the number of iterations 
+    iteration <- iteration + 1
+    
+    # update the value of beta
+    beta <- beta - qr.solve(Hessian(X, beta, m),gradient(y, X, beta, m))
+    
+    # update the list of log likelihoods
+    l_likelihood <- c(l_likelihood,log_likelihood(y, X, beta, m))
+    
+    # calculate the convergence metric for the new value of beta
+    convergence <- abs((l_likelihood[iteration+1]-l_likelihood[iteration])/l_likelihood[iteration])
   }
-  return(c("beta",beta,"step",step_n,"log likelyhood",l_likelyhood))
+  return(c("beta",beta,"step",iteration,"log likelihood",l_likelihood))
 }
 
 #let's remove some columns in X that are too correlated
-X <- X[,c(1,3,5,6,9,10,11)]
-beta <- matrix(as.numeric(test[c(2,4,6,7,10,11,12)],nrow=length(beta)))
-m <- y*0+1
+#X <- X[,c(1,3,5,6,9,10,11)]
+#beta <- matrix(as.numeric(test[c(2,4,6,7,10,11,12)],nrow=length(beta)))
+#m <- y*0+1
 test <- Newton_method(y, X, beta, m)
-
-
