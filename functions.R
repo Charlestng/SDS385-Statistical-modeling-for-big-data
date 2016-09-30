@@ -387,10 +387,9 @@ Quasi_Newton_line_search <- function(y, X, beta, m, C, rho, alpha, max_iter){
 # of iterations is upgraded, the list of the log likelihood is updated, and we calculate the
 # absolute value of the log likelihood's growth rate until convergence.
 #   The function returns:
-#      The final betas
-#      The list of log_likelihoods
-#      The number of iterations needed for convergence
-stochastic_gradient_descent <- function(y, X, beta, m, step, max_iter, mini_batch_size, C, rho, alpha){
+#      The list of betas betas
+
+stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter, mini_batch_size, C, rho, alpha){
   
   # set the number of observations that can contribute
   sample_size <- length(y)
