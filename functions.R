@@ -221,7 +221,7 @@ backtracking_general <- function(y, X, beta, m, direction, C, rho, alpha){
 #    alpha, a constant greater than 0 (better have it too big than too small)
 
 # outputs:
-#    the new value of beta after the line search in the direction of the batch
+#    the new step size
 
 step_size <- function(y, X, beta, m, direction, C, rho, alpha){
   
@@ -389,6 +389,17 @@ Quasi_Newton_line_search <- function(y, X, beta, m, C, rho, alpha, max_iter){
 #   The function returns:
 #      The list of betas betas
 
+# The stochastic gradient descent function has the following characteristics
+#   The number of iteration for the algorithm is limited to 10000
+#   The convergence is measured by the a criterion of growth rate for the exponential
+# moving average of the local contributions to the log likelihood
+#   At each iteration in the while loop a new index between 1 and n is picked at random in 
+# the sample, beta is upgraded according to that local component of the gradient, the number
+# of iterations is upgraded, the list of the log likelihood is updated, and we calculate the
+# absolute value of the log likelihood's growth rate until convergence.
+#   The function returns:
+#      The list of betas betas
+
 stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter, mini_batch_size, C, rho, alpha){
   
   # set the number of observations that can contribute
@@ -406,7 +417,7 @@ stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter,
     index <- sample(1:sample_size,1)
     
     # update beta according to the negative gradient direction
-    beta <- beta - step * gradient_local(y, X, beta, m, index)
+    beta <- beta - step * gradient_batch(y, X, beta, m, index) / mini_batch_size
     
     # update the list of betas
     beta_list <- rbind(beta_list, (t(beta)))
@@ -415,15 +426,16 @@ stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter,
     iteration <- iteration + 1
     
     if (iteration/sample_size == round(iteration/sample_size)){
-    
-       # Initialize the data points in the mini batch
-       indexes <- sample(1:sample_size, mini_batch_size)
-       
-       # create the search direction
-       direction <- gradient_batch(y, X, beta, m, indexes) / mini_batch_size
-       
-       # find the new optimal step size
-       step <- step_size(y, X, beta, m, direction, C, rho, alpha)
+      
+      # Initialize the data points in the mini batch
+      indexes <- sample(1:sample_size, mini_batch_size)
+      
+      # create the search direction
+      direction <- gradient_batch(y, X, beta, m, indexes) / mini_batch_size
+      
+      # find the new optimal step size
+      step <- step_size(y, X, beta, m, direction, C, rho, alpha)
+      alpha <- step
     }
   }
   return(beta_list)
