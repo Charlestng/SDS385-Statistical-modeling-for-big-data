@@ -435,7 +435,6 @@ stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter,
       
       # find the new optimal step size
       step <- step_size(y, X, beta, m, direction, C, rho, alpha)
-      alpha <- step
     }
   }
   return(beta_list)
