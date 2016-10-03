@@ -439,3 +439,60 @@ stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter,
   }
   return(beta_list)
 }
+
+# adagrad algorithm line search
+# inputs:
+#    y, the target vector
+#    X, the explanatory variables
+#    beta, parameters to be estimated
+#    m, number of trials for each data point (binomial probs)
+#    C, strictly between 0 and 1 Wolfe condition
+#    rho, decreasing step factor strictly between 0 and 1
+#    alpha, initial step length greater than 0
+#    max_iter, maximal number of iterations
+#    minibatch_size, the size of the minibatch for the stochastic gradient
+# outputs:
+#    beta_list, list of estimated betas
+Adagrad <- function(y, X, beta, m, C, rho, alpha, max_iter, minibatch_size){
+  
+  # initialise the number of iterations
+  iteration <- 0
+  
+  # initialise the list of betas
+  beta_list <- t(beta)
+  
+  # get the number of of observations
+  sample_size <- length(y)
+  
+  # number of features
+  number_of_features <- length(beta)
+  
+  # loop until maximum number of iterations is reached
+  while(iteration < max_iter){
+    
+    # initialise the minibatch
+    indexes <- sample(1:sample_size, minibatch_size)
+    
+    # intialise the stochastic gradient
+    grad <- gradient_batch(y, X, beta, m, indexes)
+    
+    # initialise the diagonal scaler
+    scaler <- 1 / sqrt((diag(tcrossprod(grad,grad))))
+    
+    # initialise direction 
+    direction <- scaler * grad / minibatch_size
+    
+    # update iteration
+    iteration <- iteration + 1
+    
+    # find step size
+    step <- step_size(y, X, beta, m, direction, C, rho, alpha)
+    
+    # update beta
+    beta <- beta - step * direction
+    
+    # update beta list
+    beta_list <- rbind(beta_list, t(beta))
+  }
+  return(beta_list)
+}
