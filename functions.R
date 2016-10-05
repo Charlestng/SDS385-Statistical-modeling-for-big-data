@@ -496,3 +496,17 @@ Adagrad <- function(y, X, beta, m, C, rho, alpha, max_iter, minibatch_size){
   }
   return(beta_list)
 }
+
+# soft_threshold function
+# input :
+#    target, what we want to estimate
+#    threshold, the penalty imposed on the norm l1 of the parameter
+# output :
+#    parameter, the optimal parameter to minimise the penalised square error
+soft_threshold <- function(target, threshold){
+  parameter <- vector()
+  for (element in target){
+    parameter <- append(parameter,sign(element) * max(abs(element) - threshold, 0))
+  }
+  return(parameter)
+}
