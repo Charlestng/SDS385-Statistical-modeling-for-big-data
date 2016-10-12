@@ -57,20 +57,17 @@ MOOSE <- function(target, data, split_ratio, lambda){
   n_features <- ncol(data)
   training_indexes <- sample(1:n_obs, floor(n_obs * split_ratio))
   training_set <- data[training_indexes,]
-  training_target <- target[training_indexes,]
-  test_set <- data[!training_indexes,]
-  test_target <- target[!training_indexes,]
+  training_target <- target[training_indexes]
+  test_set <- data[-training_indexes,]
+  test_target <- target[-training_indexes]
   model <- glmnet(x = training_set, y = training_target, family = "gaussian")
-  coefficients <- t(as.matrix(coef(model, s = lambda)))
+  coefficients <- as.matrix(coef(model, s = lambda))
   test_n_obs <- length(test_target)
-  error <- 1 / test_n_obs * crossprod(test_target - 
-                                      test_set %*% coefficients[2:n_features] - 
-                                      coefficients["(Intercept)"] * 
-                                      matrix(1, nrow = test_n_obs),
-                                      test_target - 
-                                      test_set %*% coefficients[2:n_features] - 
-                                      coefficients["(Intercept)"] * 
-                                      matrix(1, nrow = test_n_obs))
+  residuals_vector <- test_target - 
+    test_set %*% coefficients[2:(n_features+1)] - 
+    coefficients[1] * 
+    matrix(1, nrow = test_n_obs)
+  error <- 1 / test_n_obs * crossprod(residuals_vector,residuals_vector)
   return(error)
 }
 
@@ -78,14 +75,14 @@ Mallows_Cp <- function(target, data, lambda){
   n_obs <- nrow(data)
   n_features <- ncol(data)
   model <- glmnet(x = data, y = target, family = "gaussian")
-  coefficients <- t(as.matrix(coef(model, s = lambda)))
+  coefficients <- as.matrix(coef(model, s = lambda))
   MSE <- 1 / n_obs * crossprod(target -
-                                 data %*% coefficients[2:n_features] - 
-                                 coefficients["(Intercept)"] * 
+                                 data %*% coefficients[2:(n_features+1)] - 
+                                 coefficients[1] * 
                                  matrix(1, nrow = n_obs),
-                                 target - 
-                                 data %*% coefficients[2:n_features] - 
-                                 coefficients["(Intercept)"] * 
+                               target - 
+                                 data %*% coefficients[2:(n_features+1)] - 
+                                 coefficients[1] * 
                                  matrix(1, nrow = n_obs))
   S_lambda <- sum(coefficients != 0)
   OLS_model <- lm(target ~ data)
@@ -93,3 +90,33 @@ Mallows_Cp <- function(target, data, lambda){
   CP_stat <- MSE + 2 * S_lambda / n_obs * sigma_hat_2
   return(CP_stat)
 }
+
+cross_validation <- function(target, data, lambda_min, lambda_max, step, repeats){
+  range <- seq(from = lambda_min, to = lambda_max, by = step)
+  MOOSE_matrix <- matrix(data = range, nrow = length(range))
+  for (i in 1:repeats){
+    temporary_matrix <- matrix(ncol = 1)
+    for (lambda in range){
+      temporary_matrix <- rbind(temporary_matrix, t(as.matrix(c(
+                                           MOOSE(target = diabetesY, 
+                                                 data = diabetesX, 
+                                                 split_ratio = 0.7, 
+                                                 lambda)))))
+    }
+    MOOSE_matrix <- cbind(MOOSE_matrix, temporary_matrix[-1,])
+  }
+
+  return(MOOSE_matrix)
+}
+
+test <- cross_validation(target = diabetesY, data = diabetesX,
+                         lambda_min = 0, lambda_max = 2, step = 0.01, repeats = 20)
+
+average_MOOSE <- matrix(ncol = 2, nrow = 201)
+for(i in 1:201){
+  average_MOOSE[i,1]<- test[i,1]
+  average_MOOSE[i,2]<- mean(test[i,-1])
+}
+
+test <- MOOSE(target = diabetesY, data = diabetesX, split_ratio = 0.7, lambda = 1)
+test <- Mallows_Cp(target = diabetesY, data = diabetesX, lambda = 1)
