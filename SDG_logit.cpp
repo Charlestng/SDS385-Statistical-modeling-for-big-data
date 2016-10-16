@@ -33,7 +33,11 @@ inline double invSqrt( const double& x ) {
 }
 
 
-List sparsesgd_logit(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd beta0, double lambda=1.0, double discount = 0.01){
+// [[Rcpp::depends(RcppEigen)]]
+// [[Rcpp::export]]
+
+
+List sparsesgd_logit2(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd beta0, double lambda=1.0, double discount = 0.01){
 	// X is the design matrix stored in column-major format
   	// i.e. with features for case i stores in column i
   	// Y is the vector of counts
@@ -55,8 +59,6 @@ List sparsesgd_logit(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd beta
 		// alpha is the inverse logistic of the expectation of Y
 	double alpha = log(w_hat / (1.0 - w_hat));
 	
-	double beta = beta0;
-	
 	// Variables we will need in order to work with observations during runtime
 	SparseVector<double> x(n_features);
 	
@@ -73,27 +75,28 @@ List sparsesgd_logit(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd beta
 	double weight;
 	double gammatilde;
 	double mu;
-	double grad;
+	double this_grad;
+	double epsilon = 1e-4;
 	
 	// Initialize Gsquared and beta
-	VectorXd beta(numfeatures);
-	VectorXd Gsquared(numfeatures);
-	for(int feat=0; feat < numfeatures; feat++) {
-		Gsquared(feat) = 1e-3;
-    	beta(feat) = beta0(feat);
-		}	
+	VectorXd beta(n_features);
+	VectorXd Gsquared(n_features);
+	for(int feat=0; feat < n_features; feat++) {
+	    Gsquared(feat) = 1e-3;
+        beta(feat) = beta0(feat);
+	}	
 	
 	// Keeping track of the last time a feature's parameter has been updated for the purpose
 	// of lazy update
 	NumericVector last_update(n_features, 0.0);
 		
 	// LOOP 1: General loop that counts the number of times we go over the whole data set
-	for(int pass = 0, pass < npass, pass++){
+	for(int pass = 0; pass < npass; pass++){
 		// Initialising the number of iterations 
 		global_iterator = 0;
 		
 		// LOOP 2: going through each observation in the data set for stochastic gradient descent
-		for(int obs, obs < n_obs, obs++){
+		for(int obs; obs < n_obs; obs++){
 			
 			// The goal here is to update the intercept "alpha" at each iteration based on:
 			// The value of Y_hat
@@ -112,7 +115,6 @@ List sparsesgd_logit(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd beta
 			n_LL_track[global_iterator] = n_LL_avg;
 			
 			// Update the intercept
-			// Update intercept 
 			delta = Y[obs] - y_hat;
 			g0squared += delta*delta;
 			alpha += (1.0 / sqrt(g0squared)) * delta;
@@ -140,14 +142,14 @@ List sparsesgd_logit(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd beta
         		// Step 2: Now we compute the update for this observation and this feature.
 
         		// gradient of negative log likelihood
-        		grad = -delta * it.value();
+        		this_grad = -delta * it.value();
         		
         		// update adaGrad scaling for this feature
-        		Gsquared(feat) += grad * grad;
+        		Gsquared(feat) += this_grad * this_grad;
         		
         		// scaled stepsize
-				gammatilde = 1.0 / sqrt(Gsquared(feat));       			
-        		mu = beta(feat) - gammatilde * grad;
+				gammatilde = 1.0 / sqrt(Gsquared(feat) + epsilon);       			
+        		mu = beta(feat) - gammatilde * this_grad;
         		beta(feat) = sgn(mu) * fmax(0.0, fabs(mu) - gammatilde * weight * lambda);
 			}
 			global_iterator++; // increment global counter
@@ -163,3 +165,4 @@ List sparsesgd_logit(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd beta
                       Named("beta") = beta,
                       Named("n_LL_track") = n_LL_track);
 }
+
