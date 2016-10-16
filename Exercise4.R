@@ -34,6 +34,7 @@ X <- data[,3:12]
 data$intercept <- 1
 X <- cbind(data$intercept,X)
 X <- data.matrix(X)
+X <- t(X)
 
 # pick an initial value for beta, scale matrix X and define m
 beta <- X[1,]*0+0.5
@@ -44,8 +45,7 @@ for (i in 2:ncol(X)){
 }
 
 init_beta = rep(0.0, p)
-
-system.time(sgd1 <- sparsesgd_logit(X2, y2, m2, npass=1, beta0 = beta2, lambda=.1))
+system.time(sgd1 <- sparsesgd_logit(X, y, m, npass=1, beta0 = beta, lambda=.1))
 
 
 system.time(sgd1 <- sparsesgd_logit(tX[1:10, 1:1000], y[1:1000], rep(1,n), npass=1, beta0 = init_beta[1:10], lambda=.1))
