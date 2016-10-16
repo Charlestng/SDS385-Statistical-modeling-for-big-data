@@ -209,58 +209,6 @@ backtracking_general <- function(y, X, beta, m, direction, C, rho, alpha){
   return(beta_update)
 }
 
-# bactracking for any direction where you can also adapt the log likelihood type
-# inputs:
-#    the target vector, y
-#    the data set containing the dependent variables, X
-#    the vector of parameters to be optimised, beta
-#    the vector giving the number of trials for each yi, m
-#    direction, the direction of the line search
-#    C, a constant strictly between 0 and 1 (not too close to 1)
-#    rho, a constant strictly between 0 and 1 (not too close to 1)
-#    alpha, a constant greater than 0 (better have it too big than too small)
-
-# outputs:
-#    the new step size
-
-step_size <- function(y, X, beta, m, direction, C, rho, alpha){
-  
-  # the initial log_likelyhood
-  log_l <- log_likelihood(y, X, beta, m)
-  
-  # the gradient of the log likelihood
-  grad <- gradient(y, X, beta, m)
-  
-  # initialise beta
-  beta_update <- beta - alpha * direction
-  
-  # let's define the two components of the Wolfe condition
-  sufficient <- log_l - C * alpha * t(grad) %*% direction
-  new_likelihood <- log_likelihood(y, X, beta_update, m)
-  
-  # initialise condition
-  condition <- TRUE
-  
-  # loop until a value of alpha that satisfies the Wolfe condition is found
-  while (condition){
-    
-    # update the value of alpha
-    alpha <- alpha * rho
-    
-    # update the value of beta
-    beta_update <- beta - alpha * direction
-    
-    # update the two components of the condition
-    sufficient <- log_l - C * alpha * t(grad) %*% direction
-    new_likelihood <- log_likelihood(y, X, beta_update, m)
-    
-    condition <- (new_likelihood > sufficient)
-  }
-  
-  # return the new value of beta after the line search is done
-  return(alpha)
-}
-
 # create a batch gradient descent function that uses line search
 # inputs:
 #    y, the explained variable
@@ -389,17 +337,6 @@ Quasi_Newton_line_search <- function(y, X, beta, m, C, rho, alpha, max_iter){
 #   The function returns:
 #      The list of betas betas
 
-# The stochastic gradient descent function has the following characteristics
-#   The number of iteration for the algorithm is limited to 10000
-#   The convergence is measured by the a criterion of growth rate for the exponential
-# moving average of the local contributions to the log likelihood
-#   At each iteration in the while loop a new index between 1 and n is picked at random in 
-# the sample, beta is upgraded according to that local component of the gradient, the number
-# of iterations is upgraded, the list of the log likelihood is updated, and we calculate the
-# absolute value of the log likelihood's growth rate until convergence.
-#   The function returns:
-#      The list of betas betas
-
 stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter, mini_batch_size, C, rho, alpha){
   
   # set the number of observations that can contribute
@@ -414,21 +351,12 @@ stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter,
   while(iteration < max_iter){ 
     
     # randomly pick an observation in the data set
-    index <- sample(1:sample_size,1)
-    
-    # update beta according to the negative gradient direction
-    beta <- beta - step * gradient_batch(y, X, beta, m, index) / mini_batch_size
-    
-    # update the list of betas
-    beta_list <- rbind(beta_list, (t(beta)))
+    indexes <- sample(1:sample_size,mini_batch_size)
     
     # update the number of iterations
     iteration <- iteration + 1
     
     if (iteration/sample_size == round(iteration/sample_size)){
-      
-      # Initialize the data points in the mini batch
-      indexes <- sample(1:sample_size, mini_batch_size)
       
       # create the search direction
       direction <- gradient_batch(y, X, beta, m, indexes) / mini_batch_size
@@ -436,9 +364,68 @@ stochastic_gradient_descent_minibatch <- function(y, X, beta, m, step, max_iter,
       # find the new optimal step size
       step <- step_size(y, X, beta, m, direction, C, rho, alpha)
     }
+    
+    # update beta according to the negative gradient direction
+    beta <- beta - step * gradient_batch(y, X, beta, m, indexes) / mini_batch_size
+    
+    # update the list of betas
+    beta_list <- rbind(beta_list, (t(beta)))
   }
   return(beta_list)
 }
+
+# bactracking for any direction where you can also adapt the log likelihood type
+# inputs:
+#    the target vector, y
+#    the data set containing the dependent variables, X
+#    the vector of parameters to be optimised, beta
+#    the vector giving the number of trials for each yi, m
+#    direction, the direction of the line search
+#    C, a constant strictly between 0 and 1 (not too close to 1)
+#    rho, a constant strictly between 0 and 1 (not too close to 1)
+#    alpha, a constant greater than 0 (better have it too big than too small)
+
+# outputs:
+#    the new step size
+
+step_size <- function(y, X, beta, m, direction, C, rho, alpha){
+  
+  # the initial log_likelyhood
+  log_l <- log_likelihood(y, X, beta, m)
+  
+  # the gradient of the log likelihood
+  grad <- gradient(y, X, beta, m)
+  
+  # initialise beta
+  beta_update <- beta - alpha * direction
+  
+  # let's define the two components of the Wolfe condition
+  sufficient <- log_l - C * alpha * t(grad) %*% direction
+  new_likelihood <- log_likelihood(y, X, beta_update, m)
+  
+  # initialise condition
+  condition <- TRUE
+  
+  # loop until a value of alpha that satisfies the Wolfe condition is found
+  while (condition){
+    
+    # update the value of alpha
+    alpha <- alpha * rho
+    
+    # update the value of beta
+    beta_update <- beta - alpha * direction
+    
+    # update the two components of the condition
+    sufficient <- log_l - C * alpha * t(grad) %*% direction
+    new_likelihood <- log_likelihood(y, X, beta_update, m)
+    
+    condition <- (new_likelihood > sufficient)
+  }
+  
+  # return the new value of beta after the line search is done
+  return(alpha)
+}
+
 
 # adagrad algorithm line search
 # inputs:
@@ -467,6 +454,9 @@ Adagrad <- function(y, X, beta, m, C, rho, alpha, max_iter, minibatch_size){
   # number of features
   number_of_features <- length(beta)
   
+  # initialise the sum of historical gradients square
+  hist_grad <- matrix(0, nrow = number_of_features)
+  
   # loop until maximum number of iterations is reached
   while(iteration < max_iter){
     
@@ -476,8 +466,11 @@ Adagrad <- function(y, X, beta, m, C, rho, alpha, max_iter, minibatch_size){
     # intialise the stochastic gradient
     grad <- gradient_batch(y, X, beta, m, indexes)
     
+    # update the sum of the stochastic gradient square
+    hist_grad <- hist_grad + grad * grad
+    
     # initialise the diagonal scaler
-    scaler <- 1 / sqrt((diag(tcrossprod(grad,grad))))
+    scaler <- 1 / sqrt(hist_grad)
     
     # initialise direction 
     direction <- scaler * grad / minibatch_size
