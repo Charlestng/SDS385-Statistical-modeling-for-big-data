@@ -16,6 +16,33 @@ p = ncol(X)
 # column-oriented storage of each observation
 tX = t(X)
 
+
+data <- read.csv(url("https://raw.githubusercontent.com/jgscott/SDS385/master/data/wdbc.csv"))
+data <- data.frame(data)
+
+# let's define our y and X
+y <- data$M
+y <- data.frame(y)
+# let's convert y to a logical format
+y <- y=="M"
+y <- data.frame(y)
+y <- y*1
+y <- data.matrix(y)
+
+# let's include an intercept column in the data set
+X <- data[,3:12]
+data$intercept <- 1
+X <- cbind(data$intercept,X)
+X <- data.matrix(X)
+
+# pick an initial value for beta, scale matrix X and define m
+beta <- X[1,]*0+0.5
+beta <- matrix(beta,nrow=length(beta))
+m <- y*0+1
+for (i in 2:ncol(X)){
+  X[,i] <- scale(X[,i])
+}
+
 init_beta = rep(0.0, p)
 
 system.time(sgd1 <- sparsesgd_logit(X2, y2, m2, npass=1, beta0 = beta2, lambda=.1))
