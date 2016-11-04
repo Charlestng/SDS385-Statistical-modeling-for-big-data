@@ -55,7 +55,7 @@ List sparsesgd_logit2(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd bet
 	// Initialise parameters
 		// w_hat is intialised this way because we want to avoid it being equal to 1.0 or 0.0
 		// It is the expectation of Y
-	double w_hat = (Y.sum() + 1.0) / (M.sum() * 2.0);
+	double w_hat = (Y.sum() + 1.0) / (M.sum() + 2.0);
 		// alpha is the inverse logistic of the expectation of Y
 	double alpha = log(w_hat / (1.0 - w_hat));
 	
@@ -71,7 +71,7 @@ List sparsesgd_logit2(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd bet
 	int feat;
 	double y_hat;
 	double delta;
-	double g0squared;	
+	double g0squared = 0;	
 	double weight;
 	double gammatilde;
 	double mu;
@@ -89,14 +89,14 @@ List sparsesgd_logit2(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd bet
 	// Keeping track of the last time a feature's parameter has been updated for the purpose
 	// of lazy update
 	NumericVector last_update(n_features, 0.0);
-		
+	global_iterator = 0;	
 	// LOOP 1: General loop that counts the number of times we go over the whole data set
 	for(int pass = 0; pass < npass; pass++){
 		// Initialising the number of iterations 
-		global_iterator = 0;
+		
 		
 		// LOOP 2: going through each observation in the data set for stochastic gradient descent
-		for(int obs; obs < n_obs; obs++){
+		for(int obs = 0; obs < n_obs; obs++){
 			
 			// The goal here is to update the intercept "alpha" at each iteration based on:
 			// The value of Y_hat
@@ -111,7 +111,7 @@ List sparsesgd_logit2(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd bet
 			
 			// Then we calculate the negative log likelihood using y_hat
 				// Using a decaying moving average of the contribution to the n_LL of each observation
-			n_LL_avg = n_LL_avg * (1.0 - discount) + (M[obs] * log(1.0 + e_psi) + (M[obs]- Y[obs]) * psi);
+			n_LL_avg = n_LL_avg * (1.0 - discount) + discount * (M[obs] * log(1.0 + e_psi) - Y[obs] * psi);
 			n_LL_track[global_iterator] = n_LL_avg;
 			
 			// Update the intercept
@@ -148,7 +148,7 @@ List sparsesgd_logit2(MapMatd X, VectorXd Y, VectorXd M, int npass, VectorXd bet
         		Gsquared(feat) += this_grad * this_grad;
         		
         		// scaled stepsize
-				gammatilde = 1.0 / sqrt(Gsquared(feat) + epsilon);       			
+				gammatilde = 1.0 / sqrt(Gsquared(feat));       			
         		mu = beta(feat) - gammatilde * this_grad;
         		beta(feat) = sgn(mu) * fmax(0.0, fabs(mu) - gammatilde * weight * lambda);
 			}
