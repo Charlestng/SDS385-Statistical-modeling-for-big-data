@@ -53,6 +53,48 @@ GPS_data_campus <- GPS_data[GPS_data$lat < 30.30 &
                               GPS_data$lon < -97.72 &
                               GPS_data$lon > -97.76,]
 
+GPS_data_campus$V_lon_0 <- 0
+GPS_data_campus$V_lat_0 <- 0
+
+# Split the data into portions of measurement, 99.7% of the timelapses are under 60s
+# I will therefore consider that data points separated by more than 60s belong to different
+# samples
+
+# Indicate where two measurements are separated by more than 60 seconds
+GPS_data_campus$morethan60 <- GPS_data_campus$time_lapse > 60
+
+# Define function to create a vector that indicates for each observation the group number
+# it belongs to
+# Fuction : split_timelapse
+# input:
+#    data: a data frame containing a time serie to be split in different groups
+#    time_lapse: the time lapse variable in data
+#    truth: the indicator of a data separating two groups
+# output:
+#    portion: a vector of length = number of observations in data containing the group index
+split_timelapse <- function(data, time_lapse, truth){
+  data$portion_index <- 0
+  portion <- c()
+  begin <- 1
+  num <- 1
+  change_portion <- which(data[,truth])
+  for (i in c(change_portion,nrow(data))){
+    print(i)
+    mat_portion <- matrix(num, nrow = i - begin)
+    portion <- c(portion, mat_portion)
+    begin <- i
+    num <- num +1
+  }
+  portion <- c(portion, matrix(num, nrow = 1))
+  portion <- rbind(portion)
+  return(portion)
+}
+
+# create a vector to split data groups separated by more than 60 seconds
+portions_vector <- split_timelapse(GPS_data_campus, "time_lapse", "morethan60")
+
+# add the grouping variable to the data
+GPS_data_campus$portions <- t(portions_vector)
 
 # The kalman filtering technique to estimate a model of the form
 # x_k = F_k-1 x_k-1 + B_k u_k + w_k
@@ -103,14 +145,17 @@ GPS_data_campus <- GPS_data[GPS_data$lat < 30.30 &
 #    P_k|k = (I - K_k H_k) P_k|k-1
 
 # the measurement noise variance is
-GPS_for_noise <- GPS_data[100:350,c("lon","V_lon","lat","V_lat")]
+GPS_for_noise <- GPS_data[100:350,c("lon","V_lon","lat","V_lat","timestamp")]
 GPS_for_noise$lon <- GPS_for_noise$lon - mean(GPS_for_noise$lon)
 GPS_for_noise$V_lon <- GPS_for_noise$V_lon - mean(GPS_for_noise$V_lon)
 GPS_for_noise$lat <- GPS_for_noise$lat - mean(GPS_for_noise$lat)
 GPS_for_noise$V_lat <- GPS_for_noise$V_lat - mean(GPS_for_noise$V_lat)
 
-R_k <-  var(GPS_for_noise[,c("lon","V_lon","lat","V_lat")])
+R_k <-  var(GPS_for_noise[,c("lon","lat")])
+sigma_a <- var(GPS_for_noise$lat)
 
+# the kalman filter to treat everything at the same time, but the model here is too simplistic
+# to model the movement of the car correctly
 Kalman_filter <- function(data, x_pos, y_pos, x_speed, y_speed, time_lapse){
   # convert to numeric format
   for (i in 1:ncol(data)){
@@ -130,76 +175,187 @@ Kalman_filter <- function(data, x_pos, y_pos, x_speed, y_speed, time_lapse){
   P_k <- matrix(data = 0, nrow = 4, ncol = 4)
   
   # Initialise H_k
-  H_k <- matrix(1, nrow = 4)
+  H_k <- matrix(c(1,0,0,0,
+                  0,0,1,0), nrow = 2)
   
   # Identity matrix
   Id <- diag(x = 1, nrow = 4, ncol = 4)
   
-  # Loop over the observations to estimate the filtered time serie
-  for (k in 2:n_obs){
-    # Predict
-    # create F_k
-    F_k <- t(matrix(data = c(1, data[k,time_lapse],0,0,
+  # define F_k
+  F_k <- t(matrix(data = c(1, 3,0,0,
                            0,1,0,0,
-                           0,0,1,data[k,time_lapse],
+                           0,0,1,3,
                            0,0,0,1),
                   nrow = 4,
                   ncol = 4))
-    # Predicted (a priori) state estimate 
-    print("F_k")
-    print(F_k)
-    print("x_hat")
-    print(x_hat[k-1,])
+  
+  # create Q_k based on time lapse
+  G_k <- matrix(c(3^2/2,
+                  3,
+                  3^2/2,
+                  3),
+                nrow = 4)
+  
+  # Loop over the observations to estimate the filtered time serie
+  for (k in 2:n_obs){
+    print(k)
+    # Predict
+    # create F_k
+    #F_k <- t(matrix(data = c(1, data[k,time_lapse],0,0,
+    #                       0,1,0,0,
+    #                       0,0,1,data[k,time_lapse],
+    #                       0,0,0,1),
+    #              nrow = 4,
+    #              ncol = 4))
     
+    
+    # Predicted (a priori) state estimate 
     x_hat_k <- F_k %*% as.numeric(x_hat[k-1,])
     
     # create Q_k based on time lapse
-    G_k <- matrix(c(data[k,time_lapse]^2/2,
-                    data[k,time_lapse],
-                    data[k,time_lapse]^2/2,
-                    data[k,time_lapse]),
-                  nrow = 4)
-    Q_k <- G_k %*% t(G_k)
+    #G_k <- matrix(c(data[k,time_lapse]^2/2,
+    #                data[k,time_lapse],
+    #                data[k,time_lapse]^2/2,
+    #                data[k,time_lapse]),
+    #              nrow = 4)
+    Q_k <- G_k %*% t(G_k) * sigma_a
     # Predicted (a priori) estimate covariance
     P_k <- F_k %*% P_k %*% t(F_k) + Q_k
     
     # Update
     # Innovation or measurement residual
-    ytilde_k = data[k, c(x_pos,x_speed,y_pos,y_speed)] - x_hat_k
-    
+    ytilde_k = data[k, c(x_pos,y_pos)] - H_k %*% x_hat_k
+  
     # Innovation (or residual) covariance
-    S_k = P_k + R_k
-    print(S_k)
+    S_k = H_k %*% P_k %*% t(H_k) + R_k
     
     # Optimal Kalman gain	
-    K_k = P_k %*% solve(S_k)
+    K_k = P_k %*% t(H_k) %*% solve(S_k)
     
     # Updated (a posteriori) state estimate	
     x_hat_k = x_hat_k + K_k %*% as.numeric(ytilde_k)
     
     # Updated (a posteriori) estimate covariance	
-    P_k = (Id - K_k) %*% P_k
+    P_k = (Id - K_k %*% H_k) %*% P_k
     
     # add the new x_hat_k to the filtered time serie
     x_hat <- rbind(x_hat, t(x_hat_k))
   }
-  return(x_hat)
+  return(data.frame(x_hat))
 }
 
-# I need to convert the variables lon and lat into a distance from an origin somewhere
-# because the scale of Q_k is so much bigger than R_k that S_k is not invertible
+
+# Function Kalman filtering for one-dimension model
+# input:
+#    data: a data frame containing the time serie to be denoised
+#    pos: the position variable
+#    speed: the speed variable
+#    time_lapse: the variable indicating the time lapse between two observations
+#    time_stamp: the variable indicating the date of the observation
+# output:
+#    x_hat: a data frame containing the smoothed position, smoothed speed, and time_stamp
+Kalman_filter_1d <- function(data, pos, speed, time_lapse, time_stamp){
+  # convert to numeric format
+  for (i in 1:ncol(data)){
+    data[,i] <- as.numeric(data[,i])
+  }
+  
+  # Initialize starting point of the car
+  x_0 <- data[1,c(pos,speed,time_stamp)]
+  
+  # Number of observations
+  n_obs <- nrow(data)
+  
+  # bookeeping variable for the estimate x_hat
+  x_hat <- t(matrix(x_0))
+  
+  # Create sigma_a
+  sigma_p <- var(GPS_for_noise[,pos])
+  
+  # Create sigma_v
+  sigma_v <- var(GPS_for_noise[,speed])
+  
+  # Initialise the covariance matrix P
+  P_k <- matrix(data = c(sigma_a,0,0,sigma_v), nrow = 2, ncol = 2)
+  
+  # Initialise H_k
+  H_k <- matrix(c(1,0), ncol = 2)
+  
+  # Identity matrix
+  Id <- diag(x = 1, nrow = 2, ncol = 2)
+  
+  # Create R_k
+  R_k <-  var(GPS_for_noise[,pos])
+  
+  # Create sigma_a
+  sigma_a <- var(GPS_for_noise[,pos])/10000
+  
+  
+  # Loop over the observations to estimate the filtered time serie
+  for (k in 2:n_obs){
+    print(k)
+    # Predict
+    # define F_k
+    F_k <- t(matrix(data = c(1, data[k,time_lapse],0,1),
+                    nrow = 2,
+                    ncol = 2))
+    
+    
+    # Predicted (a priori) state estimate 
+    x_hat_k <- F_k %*% as.numeric(x_hat[k-1,1:2])
+    
+    # create Q_k based on time lapse
+    # create Q_k based on time lapse
+    G_k <- matrix(c(data[k,time_lapse]^2/2,
+                    data[k,time_lapse]),
+                  nrow = 2)
+    
+    Q_k <- G_k %*% t(G_k) * sigma_a
+    # Predicted (a priori) estimate covariance
+    P_k <- F_k %*% P_k %*% t(F_k) + Q_k
+    
+    # Update
+    # Innovation or measurement residual
+    ytilde_k = data[k, pos] - H_k %*% x_hat_k
+    
+    # Innovation (or residual) covariance
+    S_k = H_k %*% P_k %*% t(H_k) + R_k
+    
+    # Optimal Kalman gain	
+    K_k = P_k %*% t(H_k) %*% solve(S_k)
+    
+    # Updated (a posteriori) state estimate	
+    x_hat_k = x_hat_k + K_k %*% as.numeric(ytilde_k)
+    
+    # Updated (a posteriori) estimate covariance	
+    P_k = (Id - K_k %*% H_k) %*% P_k
+    
+    # add the new x_hat_k to the filtered time serie
+    x_hat <- rbind(x_hat, c(t(x_hat_k),data[k,time_stamp]))
+  }
+  return(data.frame(x_hat))
+}
+
+test_lon <- Kalman_filter_1d(data = GPS_data_campus[GPS_data_campus$portions==732,],
+                      pos = "lon", speed = "V_lon",
+                      time_lapse = "time_lapse", time_stamp = "timestamp")
+test_lat <- Kalman_filter_1d(data = GPS_data_campus[GPS_data_campus$portions==732,],
+                             pos = "lat", speed = "V_lat",
+                             time_lapse = "time_lapse", time_stamp = "timestamp")
+
+plot(test_lon$X3,test_lon$X1, type = "l", col ="red")
+lines(GPS_data_campus[GPS_data_campus$portions==732,]$timestamp,
+      GPS_data_campus[GPS_data_campus$portions==732,]$lon)
+plot(test_lat$X3,test_lat$X1, type = "l", col ="red")
+lines(GPS_data_campus[GPS_data_campus$portions==732,]$timestamp,
+      GPS_data_campus[GPS_data_campus$portions==732,]$lat)
+
+plot(GPS_data_campus[GPS_data_campus$portions==732,]$lon,
+      GPS_data_campus[GPS_data_campus$portions==732,]$lat, type="l")
+lines(test_lon$X1,test_lat$X1, col = "red")
 
 
-test <- Kalman_filter(data = GPS_data_campus[1:1000,], x_pos = "lon", y_pos = "lat",
-                      x_speed = "V_lon", y_speed = "V_lat", time_lapse = "time_lapse")
-
-F_k <- t(matrix(data = c(1, GPS_data_campus[2,"time_lapse"],0,0,
-                         0,1,0,0,
-                         0,0,1,GPS_data_campus[2,"time_lapse"],
-                         0,0,0,1),
-                nrow = 4,
-                ncol = 4))
-x_0 <-matrix(GPS_data_campus[1,c("lon","V_lon","lat","V_lat")], ncol = 4)
+# What the R package function for kalman filter looks like
 
 Initialization:
   if(i == 1){
