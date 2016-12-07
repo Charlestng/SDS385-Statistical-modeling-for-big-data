@@ -1,9 +1,13 @@
 #### SDS 385 final project
 
-library("FKF")
+library(FKF)
+library(RJSONIO)
+library(sp)
+library(ggplot2)
+library(ggmap)
 
 # Import the GPS tracking data set
-GPS_data <- read.csv("C:/Users/Charles/Documents/McCombs/Statistical modeling for big data/final project/campus_gammaradiation.csv")
+GPS_data2 <- read.csv("C:/Users/Charles/Documents/McCombs/Statistical modeling for big data/final project/campus_gammaradiation.csv")
 
 # sort by timestamp
 GPS_data <- GPS_data[order(GPS_data$timestamp),]
@@ -34,6 +38,41 @@ GPS_data[2:n_obs,"delta_lat"] <- GPS_data[2:n_obs,"lat"]-GPS_data[1:(n_obs-1),"l
 GPS_data$V_lat <- 0
 GPS_data[2:n_obs,"V_lat"] <- GPS_data[2:n_obs,"delta_lat"] / GPS_data[2:n_obs,"time_lapse"]
 
+# Calculate speed
+GPS_data$speed <- 0
+GPS_data[2:n_obs,"speed"] <- sqrt(GPS_data[2:n_obs, "V_lon"]^2
+                                  + GPS_data[2:n_obs, "V_lat"]^2)
+
+# Calculate theta, the angle between the orientation of the car and the X axis
+GPS_data$theta <- 0
+GPS_data[2:n_obs, "theta"] <- sign(GPS_data[2:n_obs, "delta_lat"]) *
+                              GPS_data[2:n_obs, "delta_lon"] /
+                              sqrt(GPS_data[2:n_obs, "delta_lon"]^2
+                                    + GPS_data[2:n_obs, "delta_lat"]^2)
+
+# Correct where theta is not defined because no movement between two observations
+index_theta <- which(GPS_data$delta_lon==0 & GPS_data$delta_lat==0)
+index_theta <- index_theta[2:length(index_theta)]
+theta <- GPS_data[,"theta"]
+for (i in index_theta){
+  print(i)
+  theta[i] <- theta[i-1]
+}
+GPS_data[,"theta"] <- theta
+
+# Calculate cos of theta, the angle between the orientation of the car and the X axis
+GPS_data$cos_theta <- 0
+GPS_data[2:n_obs, "cos_theta"] <- GPS_data[2:n_obs, "delta_lon"] /
+                              sqrt(GPS_data[2:n_obs, "delta_lon"]^2
+                              + GPS_data[2:n_obs, "delta_lat"]^2)
+
+# Calculate sin of theta, the angle between the orientation of the car and the X axis
+GPS_data$sin_theta <- 0
+GPS_data[2:n_obs, "sin_theta"] <- GPS_data[2:n_obs, "delta_lat"] /
+                                sqrt(GPS_data[2:n_obs, "delta_lon"]^2
+                                + GPS_data[2:n_obs, "delta_lat"]^2)
+
+
 # The police car drives in straight lines by block
 summary(GPS_data$lat)
 #Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
@@ -53,8 +92,6 @@ GPS_data_campus <- GPS_data[GPS_data$lat < 30.30 &
                               GPS_data$lon < -97.72 &
                               GPS_data$lon > -97.76,]
 
-GPS_data_campus$V_lon_0 <- 0
-GPS_data_campus$V_lat_0 <- 0
 
 # Split the data into portions of measurement, 99.7% of the timelapses are under 60s
 # I will therefore consider that data points separated by more than 60s belong to different
@@ -288,7 +325,7 @@ Kalman_filter_1d <- function(data, pos, speed, time_lapse, time_stamp){
   R_k <-  var(GPS_for_noise[,pos])
   
   # Create sigma_a
-  sigma_a <- var(GPS_for_noise[,pos])/10000
+  sigma_a <- var(GPS_for_noise[,pos])/100
   
   
   # Loop over the observations to estimate the filtered time serie
@@ -336,24 +373,154 @@ Kalman_filter_1d <- function(data, pos, speed, time_lapse, time_stamp){
   return(data.frame(x_hat))
 }
 
-test_lon <- Kalman_filter_1d(data = GPS_data_campus[GPS_data_campus$portions==732,],
+test_lon <- Kalman_filter_1d(data = GPS_data_campus[GPS_data_campus$portions==389,],
                       pos = "lon", speed = "V_lon",
                       time_lapse = "time_lapse", time_stamp = "timestamp")
-test_lat <- Kalman_filter_1d(data = GPS_data_campus[GPS_data_campus$portions==732,],
+test_lat <- Kalman_filter_1d(data = GPS_data_campus[GPS_data_campus$portions==389,],
                              pos = "lat", speed = "V_lat",
                              time_lapse = "time_lapse", time_stamp = "timestamp")
 
-plot(test_lon$X3,test_lon$X1, type = "l", col ="red")
-lines(GPS_data_campus[GPS_data_campus$portions==732,]$timestamp,
-      GPS_data_campus[GPS_data_campus$portions==732,]$lon)
-plot(test_lat$X3,test_lat$X1, type = "l", col ="red")
-lines(GPS_data_campus[GPS_data_campus$portions==732,]$timestamp,
-      GPS_data_campus[GPS_data_campus$portions==732,]$lat)
 
-plot(GPS_data_campus[GPS_data_campus$portions==732,]$lon,
-      GPS_data_campus[GPS_data_campus$portions==732,]$lat, type="l")
+
+plot(test_lon$X3,test_lon$X1, type = "l", col ="red")
+lines(GPS_data_campus[GPS_data_campus$portions==389,]$timestamp,
+      GPS_data_campus[GPS_data_campus$portions==389,]$lon)
+plot(test_lat$X3,test_lat$X1, type = "l", col ="red")
+lines(GPS_data_campus[GPS_data_campus$portions==389,]$timestamp,
+      GPS_data_campus[GPS_data_campus$portions==389,]$lat)
+
+plot(GPS_data_campus[GPS_data_campus$portions==389,]$lon,
+      GPS_data_campus[GPS_data_campus$portions==389,]$lat, type="l")
 lines(test_lon$X1,test_lat$X1, col = "red")
 
+colnames(test_lat) <- c("lat", "speed_lat", "time_num")
+colnames(test_lon) <- c("lon", "speed_lon", "time_num")
+test <- cbind(test_lat,test_lon)
+
+lionmap <- get_map(location = c(-97.733, 30.288), zoom = 15, maptype = "hybrid")
+
+ggmap(lionmap) + geom_path(data = GPS_data_campus[GPS_data_campus$portion == 389,
+                                                  c("lat","lon")]
+                           , aes(x = lon, y = lat), 
+                           size = 1, color = "red", type="l")
+ggmap(lionmap) + geom_point(data = test[,c("lat","lon")]
+           , aes(x = lon, y = lat), 
+           size = 1, color = "blue", type="l")
+
+# Function Kalman filtering for one-dimension model
+# input:
+#    data: a data frame containing the time serie to be denoised
+#    pos: the position variable
+#    speed: the speed variable
+#    time_lapse: the variable indicating the time lapse between two observations
+#    time_stamp: the variable indicating the date of the observation
+# output:
+#    x_hat: a data frame containing the smoothed position, smoothed speed, and time_stamp
+Kalman_filter <- function(data, x_pos, y_pos, theta, speed, time_lapse, time_stamp){
+  # convert to numeric format
+  for (i in 1:ncol(data)){
+    data[,i] <- as.numeric(data[,i])
+  }
+  
+  # Initialize starting point of the car
+  x_0 <- data[1,c(x_pos,y_pos,theta,speed,time_stamp)]
+  
+  # Number of observations
+  n_obs <- nrow(data)
+  
+  # bookeeping variable for the estimate x_hat
+  x_hat <- t(matrix(x_0))
+  
+  # Initialise the covariance matrix P
+  P_k <- diag( c(3.7, 6.4, 3.7, 6.7), nrow = 4, ncol = 4)
+  
+  # Initialise H_k
+  H_k <- diag(x = 1, nrow = 4, ncol = 4)
+  
+  # Identity matrix
+  Id <- diag(x = 1, nrow = 4, ncol = 4)
+  
+  # R_k
+  R_k <- diag(c(0.23,0.26,0.01,1.05), nrow = 4, ncol = 4)/100000
+  
+  # Q_k
+  Q_k <- diag(c(1.51,5.58,1.95,1.68), nrow = 4, ncol = 4)/100000
+  
+  # error bookeping
+  error <- c(0)
+  
+  # Loop over the observations to estimate the filtered time serie
+  for (k in 2:n_obs){
+    print(k)
+    # Predict
+    # create F_k
+    #F_k <- t(matrix(data = c(1, data[k,time_lapse],0,0,
+    #                       0,1,0,0,
+    #                       0,0,1,data[k,time_lapse],
+    #                       0,0,0,1),
+    #              nrow = 4,
+    #              ncol = 4))
+    
+    # precache the time_lapse
+    delta_t <- data[k+1,time_lapse]
+    
+    # transform F_k according to the filtered x_hat_k
+    F_k <- matrix(c(1,0,0,0,
+                    0,1,0,0,
+                    0,0,1,0,
+                    delta_t * cos(as.numeric(x_hat[k-1,3])),
+                    delta_t * sin(as.numeric(x_hat[k-1,3])), 0, 1),
+                  nrow = 4,
+                  ncol = 4)
+    
+    # adapt Q_k and R_k with delta t
+    #R_k <- diag(c(0.23,0.26,0.01,1.05), nrow = 4, ncol = 4) * 100 * delta_t
+    #Q_k <- diag(c(1.51,5.58,1.95,1.68), nrow = 4, ncol = 4) * 100 * delta_t
+    
+    
+    # Predicted (a priori) state estimate 
+    x_hat_k <- F_k %*% as.numeric(x_hat[k-1,1:4])
+    
+    # create Q_k based on time lapse
+    
+    # Predicted (a priori) estimate covariance
+    P_k <- F_k %*% P_k %*% t(F_k) + Q_k
+    
+    # Update
+    # Innovation or measurement residual
+    ytilde_k = data[k, c(x_pos,y_pos,theta,speed)] - H_k %*% x_hat_k
+    error <- c(error, ytilde_k)
+    
+    # Innovation (or residual) covariance
+    S_k = H_k %*% P_k %*% t(H_k) + R_k
+    
+    # Optimal Kalman gain	
+    K_k = P_k %*% t(H_k) %*% solve(S_k)
+    
+    # Updated (a posteriori) state estimate	
+    x_hat_k = x_hat_k + K_k %*% as.numeric(ytilde_k)
+    
+    # Updated (a posteriori) estimate covariance	
+    P_k = (Id - K_k %*% H_k) %*% P_k
+    
+    # add the new x_hat_k to the filtered time serie
+    x_hat <- rbind(x_hat, c(t(x_hat_k),data[k,time_stamp]))
+  }
+  x_hat <- data.frame(x_hat)
+  x_hat <- cbind(x_hat,error)
+  colnames(x_hat) <- c("lon", "lat", "theta", "speed", "timestamp","error")
+  return(x_hat)
+}
+
+test_2D <- Kalman_filter(data = GPS_data_campus[GPS_data_campus$portions==389,],
+                             x_pos = "lon", y_pos = "lat", theta = "theta", speed = "speed",
+                             time_lapse = "time_lapse", time_stamp = "timestamp")
+
+plot(GPS_data_campus[GPS_data_campus$portions==389,]$lon,
+     GPS_data_campus[GPS_data_campus$portions==389,]$lat, type="l")
+lines(test_2D$lon,test_2D$lat, col = "red")
+
+portion10 <- GPS_data_campus[GPS_data_campus$portions==389,]
 
 # What the R package function for kalman filter looks like
 
@@ -379,3 +546,12 @@ plot(GPS_data[100:350,c("lon","lat")])
 #V_lon  5.040236e-11  4.247126e-11 -1.731495e-11 -9.126410e-12
 #lat   -4.663612e-10 -1.731495e-11  3.968685e-10  8.948400e-12
 #V_lat -1.568053e-12 -9.126410e-12  8.948400e-12  8.627073e-12
+ 
+ 
+ 
+ lionmap <- get_map(location = c(-97.733, 30.288), zoom = 15, maptype = "hybrid")
+ 
+ ggmap(lionmap) + geom_path(data = GPS_data_campus[GPS_data_campus$portion == 389,
+                                                   c("lat","lon")]
+                             , aes(x = lon, y = lat), 
+                                   size = 3, color = "red", type="l")
